@@ -28,6 +28,7 @@ config.update("jax_disable_jit", False)
 import random
 # ============== testing scripts ===============
 
+from dataclasses import dataclass, field ##
 
 
 from ast import Dict
@@ -72,6 +73,32 @@ class EnvState:
     vwap_rm: int
 
 
+# @struct.dataclass
+# class EnvParams:
+#     message_data: chex.Array
+#     book_data: chex.Array
+#     stateArray_list: chex.Array
+#     obs_sell_list: chex.Array
+#     obs_buy_list: chex.Array
+#     episode_time: int =  60*30 #60seconds times 30 minutes = 1800seconds
+#     # max_steps_in_episode: int = 100 # TODO should be a variable, decied by the data_window
+#     # messages_per_step: int=1 # TODO never used, should be removed?
+#     time_per_step: int= 0##Going forward, assume that 0 implies not to use time step?
+#     time_delay_obs_act: chex.Array = jnp.array([0, 0]) #0ns time delay.
+#     avg_twap_list=jnp.array([312747.47,
+#                             312674.06,
+#                             313180.38,
+#                             312813.25,
+#                             312763.78,
+#                             313094.1,
+#                             313663.97,
+#                             313376.72,
+#                             313533.25,
+#                             313578.9,
+#                             314559.1,
+#                             315201.1,
+#                             315190.2])
+    
 @struct.dataclass
 class EnvParams:
     message_data: chex.Array
@@ -79,25 +106,34 @@ class EnvParams:
     stateArray_list: chex.Array
     obs_sell_list: chex.Array
     obs_buy_list: chex.Array
-    episode_time: int =  60*30 #60seconds times 30 minutes = 1800seconds
-    # max_steps_in_episode: int = 100 # TODO should be a variable, decied by the data_window
-    # messages_per_step: int=1 # TODO never used, should be removed?
-    time_per_step: int= 0##Going forward, assume that 0 implies not to use time step?
-    time_delay_obs_act: chex.Array = jnp.array([0, 0]) #0ns time delay.
-    avg_twap_list=jnp.array([312747.47,
-                            312674.06,
-                            313180.38,
-                            312813.25,
-                            312763.78,
-                            313094.1,
-                            313663.97,
-                            313376.72,
-                            313533.25,
-                            313578.9,
-                            314559.1,
-                            315201.1,
-                            315190.2])
-    
+
+    episode_time: int = 60 * 30  # 60 seconds × 30 minutes = 1800 seconds
+    # max_steps_in_episode: int = 100  # TODO should be a variable
+    # messages_per_step: int = 1       # TODO never used, should be removed?
+    time_per_step: int = 0  # 0 → do not use time step
+
+    # Use default_factory for any JAX array defaults:
+    time_delay_obs_act: chex.Array = field(
+        default_factory=lambda: jnp.array([0, 0])
+    )
+
+    avg_twap_list: chex.Array = field(
+        default_factory=lambda: jnp.array([
+            312747.47,
+            312674.06,
+            313180.38,
+            312813.25,
+            312763.78,
+            313094.1,
+            313663.97,
+            313376.72,
+            313533.25,
+            313578.9,
+            314559.1,
+            315201.1,
+            315190.2
+        ])
+    )
 
 
 class ExecutionEnv(BaseLOBEnv):

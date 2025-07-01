@@ -33,13 +33,33 @@ def add_order(orderside: chex.Array, msg: dict) -> chex.Array :
     """Low level function that will add an order (Dict)
       to the orderbook (Array) and return the updated"""
     emptyidx=jnp.where(orderside==-1,size=1,fill_value=-1)[0]
-    orderside=orderside.at[emptyidx,:].set(jnp.array([msg['price'],jnp.maximum(0,msg['quantity']),msg['orderid'],msg['traderid'],msg['time'],msg['time_ns']])).astype(jnp.int32)
+    
+    orderside=orderside.at[emptyidx,:].set(jnp.array([
+      msg['price'],
+      jnp.maximum(0,msg['quantity']),
+      msg['orderid'],
+      msg['traderid'],
+      msg['time'],
+      msg['time_ns']
+      ])).astype(jnp.int32)
+
     return __removeZeroNegQuant(orderside)
 
 @jax.jit
 def __removeZeroNegQuant(orderside):
-    return jnp.where((orderside[:,1]<=0).reshape((orderside.shape[0],1)),x=(jnp.ones(orderside.shape)*-1).astype(jnp.int32),y=orderside)
+    """
+    For any row where the 2nd column (index 1) is ≤ 0, replace all entries in that row with –1 (int32).
+    Otherwise, leave the row unchanged.
+    """
+    # Create a boolean mask of shape (N, 1) based on the 2nd column
+    mask = orderside[:, 1:2] <= 0
+    # An array full of –1’s, same shape & dtype as orderside
+    minus_one = jnp.full_like(orderside, -1, dtype=jnp.int32)
+    # Wherever mask is True, pick minus_one; else keep orderside
+    return jnp.where(mask, minus_one, orderside)
+    # jnp.where replaces full rows with -1 if the mask is True.
 
+# saved?
 
 # @jax.jit
 # def cancel_order(orderside,msg):
@@ -64,6 +84,7 @@ def cancel_order(orderside, msg):
     orderside = orderside.at[idx, 1].set(orderside[idx, 1] - msg['quantity'])
     return __removeZeroNegQuant(orderside)
 
+
 ############### MATCHING FUNCTIONS ###############
 
 @jax.jit
@@ -77,11 +98,21 @@ def match_ask_order(data_tuple):
 @jax.jit
 def match_order(data_tuple):
     top_order_idx, orderside, qtm, price, trade, agrOID, time, time_ns = data_tuple
-    newquant=jnp.maximum(0,orderside[top_order_idx,1]-qtm) #Could theoretically be removed as an operation because the removeZeroQuand func also removes negatives. 
+    newquant=jnp.maximum(0,orderside[top_order_idx,1]-qtm)
+    #Could theoretically be removed as an operation because the removeZeroQuand func also removes negatives. 
+    
     qtm=qtm-orderside[top_order_idx,1]
     qtm=qtm.astype(jnp.int32)
     emptyidx=jnp.where(trade==-1,size=1,fill_value=-1)[0]
-    trade=trade.at[emptyidx,:].set(jnp.array([orderside[top_order_idx,0],orderside[top_order_idx,1]-newquant,orderside[top_order_idx,2],[agrOID],[time],[time_ns]]).transpose())
+    trade=trade.at[emptyidx,:].set(jnp.array([
+      orderside[top_order_idx,0],
+      orderside[top_order_idx,1]-newquant,
+      orderside[top_order_idx,2],
+      [agrOID],
+      [time],
+      [time_ns]
+      ]).transpose())
+
     orderside=__removeZeroNegQuant(orderside.at[top_order_idx,1].set(newquant))
     return (orderside.astype(jnp.int32), jnp.squeeze(qtm), price, trade, agrOID, time, time_ns)
 
@@ -194,15 +225,19 @@ def cond_type_side(book_state, data):
     # index=((msg["side"]+1)+msg["type"]).astype(jnp.int32)
     s = msg["side"]
     t = msg["type"]
-    index = (((s == -1) & (t == 1)) | ((s ==  1) & (t == 4))) * 0 + \
-            (((s ==  1) & (t == 1)) | ((s == -1) & (t == 4))) * 1 + \
+    index = (((s == -1) & (t == 1))) * 0 + \
+            (((s ==  1) & (t == 1))) * 1 + \
             (((s == -1) & (t == 2)) | ((s == -1) & (t == 3))) * 2 + \
-            (((s ==  1) & (t == 2)) | ((s ==  1) & (t == 3))) * 3
+            (((s ==  1) & (t == 2)) | ((s ==  1) & (t == 3))) * 3 + \
+            (((s == -1) & (t == 4))) * 4 + \
+            (((s ==  1) & (t == 4))) * 5     
+    
+    # ask limit # but limit   # ask cancel   # bid cancel  # ask market # buy market
     # jax.debug.print("msg[side] {}", msg["side"])
     # jax.debug.print("msg[type] {}", msg["type"])
     # jax.debug.print("index is {}", index)
     # ask,bid,trade=jax.lax.switch(index-1,(ask_lim,ask_cancel,bid_lim,bid_cancel),msg,askside,bidside,trades)
-    ask, bid, trade = jax.lax.switch(index, (ask_lim, bid_lim, ask_cancel, bid_cancel), msg, askside, bidside, trades)
+    ask, bid, trade = jax.lax.switch(index, (ask_lim, bid_lim, ask_cancel, bid_cancel, ask_mkt, bid_mkt), msg, askside, bidside, trades)
     return (ask, bid, trade), 0
 
 @jax.jit
@@ -222,12 +257,18 @@ def cond_type_side_save_states(ordersides,data):
     # index=((msg["side"]+1)+msg["type"]).astype(jnp.int32)
     s = msg["side"]
     t = msg["type"]
-    index = (((s == -1) & (t == 1)) | ((s ==  1) & (t == 4))) * 0 + \
-            (((s ==  1) & (t == 1)) | ((s == -1) & (t == 4))) * 1 + \
-            (((s == -1) & (t == 2)) | ((s == -1) & (t == 3))) * 2 + \
-            (((s ==  1) & (t == 2)) | ((s ==  1) & (t == 3))) * 3
+    # index = (((s == -1) & (t == 1)) | ((s ==  1) & (t == 4))) * 0 + \
+    #         (((s ==  1) & (t == 1)) | ((s == -1) & (t == 4))) * 1 + \
+    #         (((s == -1) & (t == 2)) | ((s == -1) & (t == 3))) * 2 + \
+    #         (((s ==  1) & (t == 2)) | ((s ==  1) & (t == 3))) * 3
+    index = (((s == -1) & (t == 1))) * 0 + \
+        (((s ==  1) & (t == 1))) * 1 + \
+        (((s == -1) & (t == 2)) | ((s == -1) & (t == 3))) * 2 + \
+        (((s ==  1) & (t == 2)) | ((s ==  1) & (t == 3))) * 3 + \
+        (((s == -1) & (t == 4))) * 4 + \
+        (((s ==  1) & (t == 4))) * 5     # buy market
     # ask,bid,trade=jax.lax.switch(index-1,(ask_lim,ask_cancel,bid_lim,bid_cancel),msg,askside,bidside,trades)
-    ask, bid, trade = jax.lax.switch(index, (ask_lim, bid_lim, ask_cancel, bid_cancel), msg, askside, bidside, trades)
+    ask, bid, trade = jax.lax.switch(index, (ask_lim, bid_lim, ask_cancel, bid_cancel, ask_mkt, bid_mkt), msg, askside, bidside, trades)
     #jax.debug.print("Askside after is \n {}",ask)
     return (ask,bid,trade),(ask,bid,trade)
 
@@ -248,12 +289,19 @@ def cond_type_side_save_bidask(ordersides,data):
     # index=((msg["side"]+1)+msg["type"]).astype(jnp.int32)
     s = msg["side"]
     t = msg["type"]
-    index = (((s == -1) & (t == 1)) | ((s ==  1) & (t == 4))) * 0 + \
-            (((s ==  1) & (t == 1)) | ((s == -1) & (t == 4))) * 1 + \
-            (((s == -1) & (t == 2)) | ((s == -1) & (t == 3))) * 2 + \
-            (((s ==  1) & (t == 2)) | ((s ==  1) & (t == 3))) * 3
+    # index = (((s == -1) & (t == 1)) | ((s ==  1) & (t == 4))) * 0 + \
+    #         (((s ==  1) & (t == 1)) | ((s == -1) & (t == 4))) * 1 + \
+    #         (((s == -1) & (t == 2)) | ((s == -1) & (t == 3))) * 2 + \
+    #         (((s ==  1) & (t == 2)) | ((s ==  1) & (t == 3))) * 3
+    index = (((s == -1) & (t == 1))) * 0 + \
+        (((s ==  1) & (t == 1))) * 1 + \
+        (((s == -1) & (t == 2)) | ((s == -1) & (t == 3))) * 2 + \
+        (((s ==  1) & (t == 2)) | ((s ==  1) & (t == 3))) * 3 + \
+        (((s == -1) & (t == 4))) * 4 + \
+        (((s ==  1) & (t == 4))) * 5     # buy market
+        
     # ask,bid,trade=jax.lax.switch(index-1,(ask_lim,ask_cancel,bid_lim,bid_cancel),msg,askside,bidside,trades)
-    ask, bid, trade = jax.lax.switch(index, (ask_lim, bid_lim, ask_cancel, bid_cancel), msg, askside, bidside, trades)
+    ask, bid, trade = jax.lax.switch(index, (ask_lim, bid_lim, ask_cancel, bid_cancel, ask_mkt, bid_mkt), msg, askside, bidside, trades)
     #jax.debug.print("Askside after is \n {}",ask)
     # jax.debug.breakpoint()
     return (ask,bid,trade),get_best_bid_and_ask_inclQuants(ask,bid)
@@ -275,13 +323,20 @@ def scan_through_entire_array_save_bidask(msg_array,ordersides,steplines):
     #Will return the states for each of the processed messages, but only those from data to keep array size constant, and enabling variable #of actions (AutoCancel)
     last,all=jax.lax.scan(cond_type_side_save_bidask,ordersides,msg_array)
     # jax.debug.breakpoint()
-    return (last[0],last[1],last[2],all[0][-steplines:],all[1][-steplines:])
+    # return (last[0],last[1],last[2],all[0][-steplines:],all[1][-steplines:])
+    return (last[0],             # final ask book
+        last[1],             # final bid book
+        last[2],             # final trades
+        all[0][-steplines:], # last N best-bid prices/qty
+        all[1][-steplines:]) # last N best-ask prices/qty
 
 vscan_through_entire_array=jax.vmap(scan_through_entire_array,(2,(0,0,0)),0)
 
 ################ GET CANCEL MESSAGES ################
 
-#Obtain messages to cancel based on a given ID to lookup. Currently only used in the execution environment.
+# Obtain messages to cancel based on a given ID to lookup. 
+# Currently only used in the execution environment.
+
 def get_size(bookside,agentID):
     return jnp.sum(jnp.where(bookside[:,3]==agentID,1,0)).astype(jnp.int32)
 
@@ -321,9 +376,6 @@ def remove_cnl_if_renewed(cancel_msgs,action_msg):
     return cancel_msgs
 
    
-
-
-
 
 
 ######Helper functions for getting information #######

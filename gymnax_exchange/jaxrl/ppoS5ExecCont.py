@@ -159,14 +159,8 @@ def make_train(config):
         config["NUM_ENVS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"]
     )
 
-    # # old version
-    # env, env_params = gymnax.make(config["ENV_NAME"])
-    # env = FlattenObservationWrapper(env)
-    # env = LogWrapper(env)
-    # # old version
     
     # new version
-    # env= ExecutionEnv(config["ATFOLDER"],config["TASKSIDE"],config["TASK_SIZE"],config["LAMBDA"],config["GAMMA"])
     env= ExecutionEnv(config["ATFOLDER"],config["TASKSIDE"],config["WINDOW_INDEX"],config["ACTION_TYPE"],config["TASK_SIZE"],config["REWARD_LAMBDA"])
     env_params = env.default_params
     env = LogWrapper(env)

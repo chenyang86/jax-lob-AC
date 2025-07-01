@@ -55,7 +55,8 @@ class OrderBook():
             verbose: bool = False
         ) -> LobState:
         '''Wrapper function for the object class that takes a Dict Object as the quote,
-         ensures the order is conserved and turns the values into a jnp array which is passed to the JNP ProcessOrder function'''
+         ensures the order is conserved and turns the values into a jnp array which is 
+         passed to the JNP ProcessOrder function'''
         #Type, Side,quant,price
         inttype = 5
         intside = -1
@@ -69,8 +70,8 @@ class OrderBook():
         elif quote['type'] == 'delete':
             inttype = 2
         elif quote['type'] == 'market':
-            inttype = 1
-            intside = intside * -1
+            inttype = 4
+            #intside = intside * -1
 
         msg = jnp.array([
             inttype,

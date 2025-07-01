@@ -16,6 +16,7 @@ import chex
 from flax import struct
 from gymnax_exchange.jaxob import JaxOrderBookArrays as job
 
+from dataclasses import dataclass, field ##
 
 
 @struct.dataclass
@@ -37,8 +38,12 @@ class EnvParams:
     episode_time: int =  60*30 #60seconds times 30 minutes = 1800seconds
     # max_steps_in_episode: int = 100
     time_per_step: int= 0##Going forward, assume that 0 implies not to use time step?
-    time_delay_obs_act: chex.Array = jnp.array([0, 0]) #0ns time delay.
+    # time_delay_obs_act: chex.Array = jnp.array([0, 0]) #0ns time delay.
     
+    # Use default_factory for any JAX array defaults:
+    time_delay_obs_act: chex.Array = field(
+        default_factory=lambda: jnp.array([0, 0])
+    )
 
 
 
@@ -60,8 +65,6 @@ class BaseLOBEnv(environment.Environment):
         self.trader_unique_id=-9000+1
         self.tick_size=100
 
-
-
         # Load the data from LOBSTER
         def load_LOBSTER(sliceTimeWindow, stepLines, messagePath, orderbookPath, start_time, end_time):
             def preProcessingData_csv2pkl():
@@ -71,9 +74,15 @@ class BaseLOBEnv(environment.Environment):
                 readFromPath = lambda data_path: sorted([f for f in listdir(data_path) if isfile(join(data_path, f))])
                 messageFiles, orderbookFiles = readFromPath(messagePath), readFromPath(orderbookPath)
                 dtype = {0: float,1: int, 2: int, 3: int, 4: int, 5: int}
-                messageCSVs = [pd.read_csv(messagePath + file, usecols=range(6), dtype=dtype, header=None) for file in messageFiles if file[-3:] == "csv"]
-                orderbookCSVs = [pd.read_csv(orderbookPath + file, header=None) for file in orderbookFiles if file[-3:] == "csv"]
+                
+                messageCSVs = [pd.read_csv(messagePath + file, usecols=range(6), dtype=dtype, header=None) 
+                for file in messageFiles if file[-3:] == "csv"]
+
+                orderbookCSVs = [pd.read_csv(orderbookPath + file, header=None) 
+                for file in orderbookFiles if file[-3:] == "csv"]
+
                 return messageCSVs, orderbookCSVs
+            
             messages, orderbooks = load_files()
 
             def preProcessingMassegeOB(message, orderbook):
@@ -304,10 +313,6 @@ class BaseLOBEnv(environment.Environment):
         # # assert step_mean.shape[0] == tvs_arr.shape[0]
         # # # ------------------------------- STATS ------------------------------            
                     
-        
-
-            
-            
         #List of message cubes 
         msgs=[jnp.array(cube) for cube, book in Cubes_withOB]
         bks=[jnp.array(book) for cube, book in Cubes_withOB]

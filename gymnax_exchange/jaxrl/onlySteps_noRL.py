@@ -28,9 +28,6 @@ config.update("jax_check_tracer_leaks",False) #finds a whole assortment of leaks
 
 
 
-
-
-
 class Transition(NamedTuple):
     done: jnp.ndarray
     action: jnp.ndarray
